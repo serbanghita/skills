@@ -205,6 +205,15 @@ default PATH applies: no `~/.local/bin`, no Homebrew, no nvm.
   `'unsafe-inline'` is kept for styles. Check before "hardening".
 - IPC argument names are a contract: Tauri matches JS camelCase to Rust snake_case by name;
   renaming one side alone is a runtime "invalid args" error no compiler catches.
+- The custom `tauri://` scheme IS a secure context in WKWebView (verified on macOS,
+  2026-08): `crypto.subtle.digest` and `createImageBitmap` both work in the packaged
+  WebView, so hashing and image decode need no fallback there. Still smoke-test once per
+  new secure-context API - the guarantee is per-API in practice, not per-scheme - and keep
+  the API behind an injectable seam so a pure-JS fallback can be slotted in if a WebKit
+  version regresses it.
+- Pass `{ imageOrientation: 'from-image' }` to `createImageBitmap` explicitly: WKWebView's
+  EXIF default varies by WebKit version, and a sideways-baked raster is unrecoverable once
+  re-encoded and hashed.
 
 ---
 
