@@ -253,6 +253,97 @@ default PATH applies: no `~/.local/bin`, no Homebrew, no nvm.
   adds the updater target, which demands updater config and a signing key you may not have.
   Pass `--bundles app` for local iteration; the `.dmg` is distribution-only.
 
+### 9.1 Installing the cert does NOT install the intermediate
+
+Downloading a Developer ID Application cert from the portal and double-clicking it gives you a
+certificate that looks correct in Keychain Access and is still unusable. The portal ships the
+leaf only; the **Developer ID Certification Authority (G2)** intermediate is not included, and
+without it there is no chain to a root.
+
+The symptom is quiet and easy to misread:
+
+```
+security find-identity -v -p codesigning   ->  0 valid identities found
+security find-identity    -p codesigning   ->  1) ... "Developer ID Application: Name (TEAM)"
+```
+
+The identity is listed but never *valid*. Being listed at all already proves the private key is
+paired, so a missing key is not the cause - do not go re-exporting `.p12` files.
+
+**`security verify-cert` is a false negative here.** It reports `certificate verification
+successful` because it can consult the system trust store and fetch missing links. `codesign`
+cannot, and gives the real answer:
+
+```
+Warning: unable to build chain to self-signed root for signer "Developer ID Application: ..."
+errSecInternalComponent
+```
+
+Fix:
+
+```bash
+curl -fsSL -o DeveloperIDG2CA.cer https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+security import DeveloperIDG2CA.cer -k ~/Library/Keychains/login.keychain-db
+```
+
+Confirm the subject is `CN=Developer ID Certification Authority, OU=G2` and that it matches the
+leaf's issuer exactly before importing; Apple publishes several intermediates and the G2 one is
+what current Developer ID leaves are issued under. It chains to `Apple Root CA`, which is already
+in the system trust store, so no root install is needed.
+
+Two other things worth checking before blaming the chain, because both produce "0 valid" too:
+
+- **A not-yet-valid certificate.** `notBefore` is the issuance time in UTC, so a cert created
+  minutes ago is invalid until the clock passes it. Compare `openssl x509 -noout -dates` against
+  `date -u`, not against local time.
+- The identity string for `APPLE_SIGNING_IDENTITY` is whatever `find-identity` prints, and it may
+  not be the name you typed into the CSR. Apple regenerates the subject from the account: a CSR
+  with `CN=Serban Ghita` came back as `Developer ID Application: Gheorghe-Serban Ghita (56HTRX3D84)`,
+  the account's legal name. Copy the printed string; never retype it.
+
+### 9.1b A release script's own guards need testing under `set -o pipefail`
+
+A post-build check of the form
+
+```bash
+if strings -a "$BIN" | grep -q "some-marker"; then ...
+```
+
+is broken inside any script with `set -o pipefail`, which every careful release script has.
+`grep -q` exits on its FIRST match while `strings` is still writing, so `strings` takes SIGPIPE,
+the pipeline reports **141**, and the `if` takes the else branch **on a binary that did match**.
+
+The reason this is worth a section rather than a footnote is the direction it fails in. The check
+silently answers "marker not present" for every input, so it passes exactly the build it exists
+to reject and only ever raises a false alarm on the safe one. If the failing-safe case happens to
+be the one you build most often, it passes forever while protecting nothing.
+
+Use a counting form, which consumes all of stdin:
+
+```bash
+MARKERS=$(strings -a "$BIN" | grep -c -e "marker-one" -e "marker-two" || true)
+[[ "$MARKERS" -gt 0 ]] || die "..."
+```
+
+`|| true` because `grep -c` exits 1 on zero matches, which `set -e` would treat as fatal rather
+than as the answer. And test the guard in both directions - a guard verified only on the input it
+passes has not been verified.
+
+### 9.2 The CSR fields that matter
+
+Keychain Access > Certificate Assistant > Request a Certificate From a Certificate Authority:
+
+- **CA Email Address: leave blank.** It is only used by the "Emailed to the CA" flow. You are
+  choosing "Saved to disk", so it is ignored.
+- User Email Address: the Apple ID email. Common Name: anything descriptive - see above, Apple
+  overrides it anyway.
+- 2048-bit RSA (the default). Verify the result before uploading:
+  `openssl req -in X.certSigningRequest -noout -subject -verify`.
+- Generate it on the machine that will build. The private key stays in that login keychain, and a
+  cert downloaded elsewhere is useless without it.
+- Developer ID certs need the Account Holder role and are capped at 5 per account with no
+  self-service revocation. Do not create spares to experiment with.
+
 ---
 
 ## 10. Dev workflow
