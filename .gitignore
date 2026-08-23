@@ -1,1 +1,3 @@
 .idea
+# Local planning-session state (PID -> active plan pointers)
+.planning/.sessions/
