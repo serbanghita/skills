@@ -17,6 +17,7 @@ or into `~/.claude/skills/` to make it available in every project.
 | [tauri-macos](tauri-macos/SKILL.md) | Tauri 2 on macOS: threading (sync commands run on the main thread; blocking dialogs deadlock), atomic file writes with macOS metadata, bundle identity, Finder-launch environment, lifecycle, menus, IPC, capabilities, Developer ID distribution. |
 | [apple-store-release](apple-store-release/SKILL.md) | Shipping a Mac app through Apple: Mac App Store vs Developer ID, certificates and the missing G2 intermediate, notarization and stapling (including the .dmg the bundler skips), Gatekeeper verification, the sandbox retrofit, naming/identifier permanence, listing and anti-steering rules, update cost. |
 | [microsoft-store-release](microsoft-store-release/SKILL.md) | Shipping a desktop app to the Microsoft Store as MSIX: Partner Center registration and verification waits, the permanent publisher segment, assigned identity values, makeappx packaging with no MSIX target, runFullTrust and packaged-container effects, WACK and certification, update cost. |
+| [claude-code-statusline](claude-code-statusline/SKILL.md) | Writing a correct Claude Code status line: which numbers the stdin payload already provides (cost, context percentage) vs. the one it doesn't, the per-content-block duplication that makes naive transcript summing over-count 2x, why `jq` is the wrong dependency and git-bash is the real shell on Windows, and the silent degradation that makes a broken status line look finished. Ships a working node implementation. |
 
 ## Reference documents
 
