@@ -357,6 +357,99 @@ The structure that survives any version of these rules:
 
 ---
 
+### 8.2 Pre-answer what the bundle can answer; two of the blockers are `Info.plist` keys
+
+Both of these are server-side rules with no local equivalent. The archive signs, verifies and
+packages perfectly without them, and only Apple's ingestion pass has the rule — so **budget at
+least one round trip per new submission surface**, and move each rejection into your own
+preflight as you learn it so the same one never costs two.
+
+- **`LSApplicationCategoryType`.** Missing it is rejection **90242**, arriving by email minutes
+  after the upload tool has already reported success. Note that in Tauri this is the *top level*
+  `bundle.category`, not one of the `bundle.macOS.*` keys, which is easy to miss while
+  configuring everything else under `macOS`. **The value must match the category chosen in App
+  Store Connect.**
+- **`ITSAppUsesNonExemptEncryption`.** Without it every delivery lands in the Add Build dialog
+  marked "Missing Compliance" and waits on a manual click before it can be attached to a version.
+  With it, the question is settled for every build that carries it. Answer it from the code, not
+  from intuition — the honest question is whether the binary *makes network requests at all*, and
+  a dependency declared in the manifest but compiled out of that SKU does not count. A
+  `com.apple.security.network.client` entitlement is not evidence either: a WKWebView needs it to
+  serve *bundled local* content under the sandbox.
+- **A second SKU does not inherit either answer.** If the paid build carries a network client or
+  a crypto licence check, the compliance question has to be answered again for that binary.
+
+**Uploading the archive is not the same as it being accepted.** Transporter validates structure
+and resolves the bundle id to the app record, then reports success; the real verdict is the email.
+
+**In Tauri specifically, `bundle.macOS.infoPlist` is a path to a plist file, not an inline
+object** — the object form fails schema validation. Name that file something other than
+`Info.plist`, because Tauri *also* auto-merges any file with exactly that name sitting beside
+`tauri.conf.json`; using it leaves two mechanisms doing one job with the invisible one winning.
+
+### 8.3 App Privacy is a portal form, it is not scriptable, and it must be published
+
+The last thing between a fully configured version and **Add for Review** is usually:
+
+> Before you can submit this app for review, an Admin must provide information about the app's
+> privacy practices in the App Privacy section.
+
+The App Store Connect API cannot write it. Measured 2026-08-27 with an **Admin**-role key, both
+relationships the documentation implies are absent from the app resource:
+
+```
+/v1/apps/<id>/appDataUsages             -> 404 "The relationship 'appDataUsages' does not exist"
+/v1/apps/<id>/appDataUsagesPublishState -> 404 "The relationship 'appDataUsagesPublishState' does not exist"
+```
+
+So it is **App Privacy** in the sidebar — app-level, not on the version page — Get Started, then
+**Publish**. Saving a draft does not clear the banner.
+
+Two things make a "Data Not Collected" answer defensible rather than optimistic:
+
+- **Apple defines *collect* as transmitting data off the device.** Files the app writes on the
+  user's own machine are not collection. Say no when that is what is true.
+- **The App Privacy card, the listing description, the reviewer notes and the privacy policy at
+  the URL Apple fetches must all agree.** A policy describing accounts or analytics beside a
+  "Data Not Collected" card is a contradiction a reviewer will find, and the policy is the one of
+  the four that tends to be written first and reviewed last.
+
+### 8.4 Expect a 2.1.0 "App Completeness" rejection, and answer it as a form
+
+A first submission of a new app is very likely to come back rejected under **2.1.0 Performance:
+App Completeness** with a seven-point request for information: a screen recording, the devices
+and OS tested on, function and target audience, setup and access instructions, external services
+used, regional differences, and any regulated industry or protected third-party material.
+
+**This is a form letter, not a critique of the notes you wrote.** It is sent whether or not your
+reviewer notes already covered some of the points in prose — that has been observed directly on
+a submission whose notes answered points 3, 4 and 5 clearly. The reviewer is scanning for seven
+answers, and cannot distinguish "this app has no external services" from "the submitter did not
+address external services". The second reading is the safe one for them.
+
+So write the notes **in Apple's order, under Apple's numbered headings**, and answer every point
+explicitly — above all the ones whose honest answer is "none". For a local, offline, no-account
+app that will be six of the seven. Six paragraphs saying "none" feels absurd and is the entire
+content of the request.
+
+Consequences worth planning for:
+
+- **The screen recording cannot be written, only made.** Real hardware, current OS, opening on
+  the app being launched, walking the typical path, no cuts. Budget a person and an hour. Keep a
+  shot list in the repo beside the listing copy so the recording is reproducible per version and
+  per store — Microsoft's certification notes ask for substantially the same seven things.
+- **Point 7 rewards an actual audit.** Enumerate every bundled third-party asset and its licence
+  before answering. Attribution-required licences (CC-BY for icon and emoji sets is the common
+  one) need a surface you can name. A licence banner preserved inside the shipped bundle
+  satisfies the licence; a visible About-window credit is the answer a reviewer can verify. Know
+  which of the two is in the build actually under review — a notes claim about an About dialog
+  that postdates the uploaded build is a false statement to Apple, not a rounding error.
+- **A rejection resets only the review.** Metadata, screenshots, categories, age rating and the
+  published App Privacy all survive; the version goes to `REJECTED`, the submission to
+  `UNRESOLVED_ISSUES`, and the notes field stays editable in place. Resubmit is a portal button.
+- **Turnaround is fast.** The rejection above arrived one day after submission. Have the answers
+  drafted before you submit, not after.
+
 ## 9. Updating a shipped app
 
 - **Every update is a fresh notarization.** Tickets bind to the binary, so there is no shortcut
