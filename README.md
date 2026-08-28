@@ -5,8 +5,48 @@ Each top-level folder is one skill (`<skill-name>/SKILL.md`).
 
 ## Usage
 
-Copy (or symlink) a skill folder into a project's `.claude/skills/` directory,
-or into `~/.claude/skills/` to make it available in every project.
+Claude Code discovers skills one folder at a time: `~/.claude/skills/<skill-name>/SKILL.md`
+makes a skill available in every project, `<project>/.claude/skills/<skill-name>/SKILL.md`
+in just that one.
+
+Link the skills you want individually. Do not point `~/.claude/skills` itself at this
+repo - that replaces the whole directory and hides every other skill already in it.
+
+macOS / Linux:
+
+```sh
+ln -s "$PWD/tauri-macos" ~/.claude/skills/tauri-macos
+```
+
+Windows PowerShell (needs Developer Mode or an elevated shell):
+
+```powershell
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\tauri-macos" -Target "$PWD\tauri-macos"
+```
+
+Windows without either - a directory junction behaves identically for a local path and
+needs no privileges:
+
+```cmd
+mklink /J "%USERPROFILE%\.claude\skills\tauri-macos" "%CD%\tauri-macos"
+```
+
+Repeat per skill, or link them all at once from a clone of this repo:
+
+```sh
+for d in */; do
+  [ -f "$d/SKILL.md" ] && ln -sfn "$PWD/${d%/}" ~/.claude/skills/"${d%/}"
+done
+```
+
+```powershell
+Get-ChildItem -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.md" } | ForEach-Object {
+  New-Item -ItemType SymbolicLink -Force -Path "$HOME\.claude\skills\$($_.Name)" -Target $_.FullName
+}
+```
+
+Symlinks keep the skills current with `git pull`. Copying the folders works too, but then
+every update has to be re-copied.
 
 ## Skills
 
