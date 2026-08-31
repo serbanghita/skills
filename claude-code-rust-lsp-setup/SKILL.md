@@ -101,7 +101,16 @@ skipping if already present:
 }
 ```
 
-**Step 3 — enable per project**, in the repo's `.claude/settings.json` `enabledPlugins`:
+**Step 3 — install, then enable per project.** A settings-file enablement alone does NOT
+install the plugin (measured: the fresh session reported "LSP server unavailable" — the
+enabled-but-uninstalled plugin loaded nothing while the disable line had already switched the
+official server off, leaving no rust LSP at all). Install once:
+
+```sh
+claude plugin install rust-analyzer-all-features@local-plugins
+```
+
+then in the repo's `.claude/settings.json` `enabledPlugins`:
 
 ```json
 "rust-analyzer-all-features@local-plugins": true,
