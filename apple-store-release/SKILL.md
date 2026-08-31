@@ -168,7 +168,57 @@ CeraPad Pro.dmg  ->  rejected   source=Unnotarized Developer ID
 Every downloader would have been stopped at the disk image while the app within it was flawless.
 Submit and staple each distributed container yourself. Do not remove that step as redundant.
 
-### 3.4 Timing, and what notarization is not
+### 3.3b A 2.1.0 "App Completeness" rejection is a seven-item form — answer it as one
+
+Measured 2026-08-28/30. Build 2 carried reviewer notes that answered three of the seven items
+in prose and was rejected under 2.1.0 the next day. Build 4 answered all seven **under their own
+numbered headings, in the request's order, including every item whose honest answer is
+"none"**, with a silent screen recording attached (launch → core flow → About dialog, one take,
+no cuts, ~4 min, 1080p30 at 13 MB). Approved one day after resubmission with the binary
+otherwise unchanged in substance. The reviewer is scanning for seven answers; "not addressed"
+and "not applicable" look identical unless the second is written down.
+
+Two portal details on the way there: an unreleased app's Version field is editable, so a
+rejected 1.0.0 record can become 1.0.1 without a new version; and picking a build in the Build
+section persists only after the page's Save — read the version's build back through the API
+before pressing Resubmit.
+
+### 3.3c Released, "available in all territories", and a 404 on every EU storefront
+
+Measured 2026-08-30, minutes after the first release. Non-EU storefronts (`us`, `gb`, `ca`,
+`au`, `ch`, `jp`) served the product page; every EU one (`ro`, `de`, `it`, `es`, `nl`, `ie`)
+returned 404, and the Mac App Store app said "not available in your country or region". The
+availability record claimed all territories. Cause: no **Digital Services Act trader
+declaration** on the account. Apple lists an app in the EU only after the developer declares
+trader or non-trader status (App Store Connect ▸ Business ▸ Digital Services Act); traders
+supply address, phone and email that Apple verifies and displays on EU product pages. Nothing
+in the version state, the review, or the availability API flags it — probe the storefronts per
+country with `curl -o /dev/null -w '%{http_code}'` on `apps.apple.com/<cc>/app/<slug>/id<id>`
+after every first release, EU and non-EU side by side.
+
+### 3.4 Two SKUs from one target directory lose each other's `.dmg`
+
+Measured 2026-08-28. Tauri's dmg bundler empties `bundle/dmg/` before writing, so building the
+free SKU right after Pro deleted `CeraPad Pro_1.0.1_universal.dmg` with no message; the `.app`
+bundles survive only because their names differ under `bundle/macos/`. If more than one product
+builds from one `target/`, have the release script copy each notarized image to a directory the
+pipeline never clears (`src-tauri/target/releases/`), validate the copy with `stapler`, and
+upload from there. A verification loop that globs `*.dmg` in the bundle directory is not evidence
+that both images exist — it will happily report the one that is left.
+
+### 3.5 A locally installed `.pkg` relocates onto any dev bundle Spotlight can see
+
+Measured 2026-08-28. `productbuild --component` emits `<relocate><bundle id="…"/></relocate>`
+in `PackageInfo` (not the `relocatable="false"` attribute beside it, which is a package-level
+flag). Installer then asks the installing user's Spotlight for an existing bundle with that id
+and upgrades *that* in place: the receipt says `/Applications`, nothing appears there, and a build
+directory bundle silently becomes the Store-signed universal binary. The App Store never installs
+this way, so do not rewrite the packaging step to fix it. Make the source tree unreadable from
+the installing account instead (`chmod 700` on the work directory — every local account is in
+`staff`, and a `755` project directory is visible to all of them), which is also what a clean
+demo-recording account needs.
+
+### 3.6 Timing, and what notarization is not
 
 - **The first notarization took 50 minutes; the second, same machine and credentials, under
   one.** That is Apple warming up a new team, not a property of the app. Do not budget an hour
