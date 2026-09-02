@@ -263,7 +263,30 @@ residual containment:
 - Expect the agent to spend turns verifying its own work; give it a sanctioned channel
   (the validator) rather than only denials.
 
-## 12. Method
+## 12. Plugins as configuration carriers (measured 2026-08-31)
+
+- Settings enablement is NOT installation. `enabledPlugins: {"x@m": true}` with `x` never
+  installed loads nothing, silently: the session reported "LSP server unavailable" while
+  `claude plugin list` simply did not show the plugin. `claude plugin install x@m` is a
+  separate, required step, and `plugin list` is the ground truth - not the settings file.
+- The failure compounds when swapping a built-in for a replacement: enabling the (uninstalled)
+  replacement and disabling the official one in a single settings edit leaves ZERO providers.
+  Install first, then flip settings.
+- `enabledPlugins` precedence is user < project < local, so a project-level `false` overrides
+  a user-level `true` - the sanctioned way to swap one plugin for another per repo.
+- `extraKnownMarketplaces: {"source": "directory", "path": ...}` registers a local directory
+  as a marketplace. Registration is availability only - installation above still applies.
+- Some configuration ONLY a plugin can carry: LSP `initializationOptions` are read from a
+  plugin manifest and nowhere else (not user or project settings). Measured use: starting
+  rust-analyzer with `cargo features=all` after both project- and user-level
+  `rust-analyzer.toml` were measured dead - see the claude-code-rust-lsp-setup skill.
+- Plugin/config changes load at session start, so the session that edits them can never see
+  them. Verify by spawning a fresh headless child in the target repo - `claude -p "<run the
+  probing tool and report raw results>"` - which loads config exactly as the next interactive
+  session will. This measured both the silent failure above and the fix (0 results before
+  install; 137 references across 8 files after).
+
+## 13. Method
 
 - Probe the wire, not the docs: every consequential finding here (hook event shape,
   `--allowedTools` non-sandbox, fail-open hooks, `--setting-sources` semantics, auth exit
