@@ -214,6 +214,20 @@ default PATH applies: no `~/.local/bin`, no Homebrew, no nvm.
 - Pass `{ imageOrientation: 'from-image' }` to `createImageBitmap` explicitly: WKWebView's
   EXIF default varies by WebKit version, and a sideways-baked raster is unrecoverable once
   re-encoded and hashed.
+- WebRTC in a SANDBOXED WKWebView needs `com.apple.security.network.server`, not just
+  `network.client` (measured 2026-09-04). The symptom of the missing entitlement is subtle:
+  STUN still answers, so you get a srflx candidate, but the host candidate never appears and
+  ICE gathering never fires end-of-candidates - it looks like a slow network, not a denial.
+  Same bundle with the sandbox off, or with `network.server` added, gathers host+srflx in
+  ~1s. The control run (unsandboxed) is what distinguishes this from WebKit's own ICE
+  candidate filtering, which was NOT the cause. Test entitlements with an ad-hoc signature:
+  `codesign --force --entitlements X.plist --sign - App.app` switches the sandbox on without
+  a Developer ID or profile; Gatekeeper asks once for "unknown developer".
+- WKWebView's `RTCDataChannel.send()` does NOT throw on a message over `sctp.maxMessageSize`
+  (262,144 bytes, measured 2026-09-05, same as node-datachannel). The oversized send is
+  accepted, never delivered, and the channel silently transitions to `closed` - so a
+  try/catch around send catches nothing and the symptom looks like the peer leaving.
+  Fragment below the limit yourself; never rely on the exception path.
 
 ---
 
@@ -274,6 +288,13 @@ and a stale duplicate here would be believed.
 - If `devUrl` hardcodes a port, set Vite `strictPort: true` - a stale dev server on that
   port otherwise makes `tauri dev` half-connect instead of failing loudly.
 - Launch fresh instances with `open -n` on the built `.app` so you never demo a stale one.
+- A sandboxed build logs into its container, not the plain user path:
+  `~/Library/Containers/<bundle id>/Data/Library/Logs/<bundle id>/`. Grep both when comparing
+  a sandboxed run against an unsandboxed control of the same app.
+- A `sudo tauri build` leaves `bundle/macos/App.app` root-owned; the next unprivileged build
+  compiles fine and then fails at "failed to remove old app bundle ... Permission denied",
+  leaving a STALE `.app` in place that looks fresh. Read the tail of the build output, then
+  `mv bundle/macos bundle/macos.old` (user-owned parent, no sudo needed) and re-run.
 - `npm run tauri dev` and the packaged bundle are DIFFERENT environments (PATH, quarantine,
   LaunchServices). Anything involving discovery, spawning, signing, or file associations
   must be verified from the bundle; dev-mode success is not evidence.

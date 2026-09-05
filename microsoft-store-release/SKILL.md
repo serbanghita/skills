@@ -332,6 +332,25 @@ never seen the app.
 
 ---
 
+### 3.1 Read the dashboard before reserving; the status column tells you how far a product got
+
+Measured 2026-09-03: a recollection that only the paid SKU had been registered was wrong - both
+products were in the apps list, the free one reserved five weeks earlier. Reserving is cheap but
+the name is held by your own draft, so a second attempt fails with a "name unavailable" that
+looks like a conflict with a stranger. The apps list and each product's identity page are the
+record; docs written from memory are not.
+
+The Status column encodes the submission state, and the two idle values are not the same thing:
+
+| Status | Meaning |
+|---|---|
+| **Not started** | reserved, no submission draft ever created; the overview page offers "Start submission" |
+| **Not submitted** | a draft exists (its Pricing and availability has usually been visited - the Markets column fills in) but nothing was sent to certification |
+
+When two SKUs share an account, ship the free or simpler one first: the shared parts of the
+package (the WACK "Blocked executables" line, the manifest, the file association) get their
+certification questions answered once, before the harder SKU's own questions are added on top.
+
 ## 8. Submission checklist
 
 - Listing description states any external dependency plainly (here: the app requires the user's
@@ -366,6 +385,13 @@ never seen the app.
   collects nothing, because the spawned tooling or the website may.
 - WACK pass on the exact uploaded package (section 5.3).
 - Certification feedback resolved.
+- **Measured turnaround:** a full-trust MSIX whose WACK report carried a failing "Blocked
+  executables" test, pre-explained in the notes for certification, was submitted on a
+  Thursday and live on the Saturday, two days later. Plan on "a few hours to three business
+  days" and expect the short end when the notes answer the questions first.
+- **The listing URL is `apps.microsoft.com/detail/<store id>`**, and the id is
+  case-insensitive. Partner Center's share button appends `?cid=DevShareMCLPCS&hl=..&gl=..`;
+  record the bare form, since the tracking and locale parameters are noise.
 - Post-certification: install from the Store on a machine that has never seen the app; verify
   Microsoft's signature and that updates flow through the Store (section 6).
 
