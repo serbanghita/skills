@@ -272,6 +272,33 @@ In ascending order of conclusiveness:
 
 macOS caches Gatekeeper assessments per app, so a repeat run can pass for the wrong reason.
 
+### 4.2 Hosting the notarized file: the traps are in the pointer, not the bytes
+
+Measured while publishing CeraPad 1.1.1 from a public GitHub releases repository, 2026-09-07.
+Once notarization is done the remaining failures are all about how people reach the file.
+
+- **A stapled ticket survives a plain `cp`.** The staple is written into the image, not into
+  filesystem metadata, so copying a finished `.dmg` out of the bundler's directory - which you
+  must do if two SKUs share a target tree - keeps it valid. Verify the copy rather than assuming
+  it: `stapler validate` on the destination costs nothing.
+- **Generate the checksum sidecar AFTER any rename.** `shasum -a 256` writes the filename into
+  its output and `shasum -c` compares it, so a sidecar made before the rename fails for every
+  downloader while verifying perfectly where it was made.
+- **A "latest" redirect resolves per ASSET, not per release.** Version-less asset names behind a
+  `releases/latest/download/<name>` URL are what let a download page hardcode a link forever -
+  but the newest release becomes "latest" for every asset name at once, and one that does not
+  carry a given asset simply 404s rather than falling back to an older release that does. Since
+  macOS and Windows builds come off different machines, a single-platform release silently
+  breaks the other platform's download unless its asset is re-attached to the new tag.
+- **That redirect skips prereleases**, which cuts both ways. It is the clean way to publish an
+  interim single-platform build without disturbing live links; it is also why flagging a real
+  release as a prerelease makes every download link serve the previous version, with no error
+  anywhere.
+- **A page that prints one version for two platforms is lying about one of them** as soon as the
+  platforms stop shipping together. Either carry the other build forward and say in the release
+  notes which build each file is, or split the constant. Decide before publishing, because the
+  tag is public.
+
 ---
 
 ## 5. The release script is a guard, so test the guards
