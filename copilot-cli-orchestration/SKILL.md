@@ -1,6 +1,6 @@
 ---
 name: copilot-cli-orchestration
-description: Driving the GitHub Copilot CLI headless from a host application - bring-your-own auth with no free auth probe, binary discovery, the canonical argv, the JSONL event taxonomy, a guard split across two layers because hook timeouts fail open into execution, an app-owned COPILOT_HOME per conversation, the nonce canary, default egress surfaces to close, sessions/resume/continuity loss, premium-request cost, and the authoring contract in AGENTS.md. Load when embedding Copilot CLI as a subprocess, adding it as a second provider beside Claude Code, or debugging a headless Copilot run that misbehaves.
+description: Driving the GitHub Copilot CLI headless from a host application - bring-your-own auth with no free auth probe, binary discovery, the canonical argv, the JSONL event taxonomy, a guard split across two layers because hook timeouts fail open into execution, an app-owned COPILOT_HOME per conversation, the nonce canary, default egress surfaces to close, sessions/resume/continuity loss, premium-request cost, the authoring contract in AGENTS.md, and keeping a login across VM or pod recreation (token injection, plaintext fallback, token lifetime and revocation). Load when embedding Copilot CLI as a subprocess, adding it as a second provider beside Claude Code, hosting a per-developer Copilot agent on a headless Linux VM or pod, or debugging a headless Copilot run that misbehaves.
 ---
 
 # GitHub Copilot CLI Orchestration
@@ -41,7 +41,8 @@ The three facts that shape everything else:
 
 - Headless runs work on the user's existing `copilot login` with no token supplied by the
   host. Requests bill to the user's account. Do not add a token setting, a paste-a-PAT
-  onboarding step, or a hosted proxy.
+  onboarding step, or a hosted proxy. (A headless VM with no user at it is a different case:
+  section 13.)
 - **There is no `copilot auth status`.** Three candidate probes were tested and all failed:
   `copilot --version` exits 0 with no credential at all; `copilot --resume=<nonexistent> -p x`
   resolves the session BEFORE validating auth, so logged-in and logged-out return the identical
@@ -73,8 +74,9 @@ The three facts that shape everything else:
 - **A run with a relocated `COPILOT_HOME` still authenticated** (section 5), and the relocated
   `config.json` was 131 bytes with no token in it. That is what makes the design possible
   without breaking the BYO rule. WHERE the credential came from was not isolated: the system
-  keychain is the likely source, but `gh` was on the PATH and the fallback above was never
-  ruled out. One macOS machine. You MUST re-verify this per platform before relying on it: a
+  keychain is the likely source (the docs say `COPILOT_HOME` does not relocate a keyring
+  entry, section 13), but `gh` was on the PATH and the fallback above was never ruled out.
+  One macOS machine. You MUST re-verify this per platform before relying on it: a
   platform that stores the token inside the CLI's home would be orphaned by relocation.
 
 ## 2. Binary discovery and preflight
@@ -459,6 +461,8 @@ directly.
 
 ## 10. Cost and latency (measured, 2026-08)
 
+- The docs describe a move to token-metered AI credits from 2026-06-01, which these recordings
+  do not show; see section 13 before assuming either unit.
 - The unit is PREMIUM REQUESTS, not dollars: 0.33 per run on `claude-haiku-4.5`, 1.0 on the
   one Sonnet run (1.0.79). Store it in its own field. Never write it into a USD field and
   never substitute a zero:
@@ -511,7 +515,133 @@ directly.
   mid-run.
 - Do not inline GitHub's mark as the provider glyph; it is a trademark with usage guidelines.
 
-## 13. Method
+## 13. Headless VM or pod: keeping the login across recreation
+
+A different deployment from the rest of this skill: one always-on Linux VM or pod per
+developer, each running that developer's own Copilot on their own subscription, where the
+machine can be destroyed and recreated. **Evidence grade for this whole section: desk
+research on 2026-11-26** (docs.github.com, the `github/copilot-cli` changelog and issues, CLI
+1.0.100 to 1.0.116, one macOS machine). NOTHING here was run on Linux. Each claim is marked
+documented, inferred or unmeasured; the full report with sources is
+`reports/Copilot CLI login persistence.md` in this repository.
+
+**The answer is yes, and the unit of identity is the token, not the machine.** Every supported
+credential is a bearer string the CLI will take from the environment; its own stores are
+conveniences layered over that. Design around the string, not around `~/.copilot`.
+
+Where the login lives:
+
+- Default (documented): the OS credential store under service name `copilot-cli` (Keychain,
+  Credential Manager, libsecret on Linux). On macOS `config.json` holds only account names
+  (`loggedInUsers`, `lastLoggedInUser`) and no token (measured, 1.0.100).
+- No keyring reachable (documented): the CLI asks
+  `System keychain unavailable. Store token in plaintext config file? (y/N)` and on yes writes
+  the token into `config.json` under `~/.copilot` or `COPILOT_HOME`. Declining cancels the
+  sign-in. A `storeTokenPlaintext` key in `settings.json` (default `false`) allows it; whether
+  that suppresses the prompt is unmeasured.
+- **`COPILOT_HOME` relocates the plaintext fallback and all state, but NOT a keyring entry**
+  (documented). This explains the section 1 measurement. It also reverses on a pod: with no
+  keyring the credential lives INSIDE the home, so a per-conversation home (section 5) starts
+  logged out unless a token variable is set.
+- The token field in `config.json` is undocumented and the file is described as managed
+  application state, not a contract. The only description is a 2025 excerpt
+  (`copilot_tokens`, keyed `<host>:<login>`); the name has probably changed since.
+- NEVER depend on a keyring on a headless box. Open issues report keyrings installed but
+  unusable over SSH, no default keyring being created, and a 20 second startup stall on an
+  unresponsive Secret Service. A GNOME keyring also needs an unlock per boot.
+
+Token types and lifetime:
+
+- Accepted (documented): `gho_` OAuth tokens (from `copilot login`, or from `gh`),
+  `github_pat_` fine-grained PATs carrying the account permission "Copilot Requests", and
+  `ghu_` GitHub App user tokens. Classic `ghp_` PATs are rejected and skipped. `ghs_`
+  installation tokens work only in organization-billed setups with no user attached, so they
+  cannot carry a developer's own subscription.
+- The `gho_` token from `copilot login` has no documented expiry and no refresh step
+  (inferred: a keychain item seven months old still authenticated, and refresh is documented
+  only for `ghu_`).
+- What revokes it (documented): one year unused, the user or app owner revoking the
+  authorization, a leak into a public repository, or **more than ten tokens per user,
+  application and scope**, at which point an older one is revoked. Each interactive login
+  mints a new token, so NEVER make "log in again" the recovery path for a rebuilt machine:
+  across a fleet it revokes the oldest machines.
+- `/logout` removes the local copy only. It does not revoke the token on GitHub.
+- A fine-grained PAT lasts 1 to 366 days or has no expiry (default 30 days). It MUST be owned
+  by the personal account: the permission does not exist on organization-owned tokens. No way
+  to create or renew one without the browser was found.
+
+Four ways to bring the login back:
+
+| Route | Documented | Weakness |
+|---|---|---|
+| `COPILOT_GITHUB_TOKEN` from a per-developer secret | yes, recommended by GitHub for containers and headless servers | rotation needs a process restart; a stale value masks a valid stored login |
+| `copilot login --with-token` at boot (stdin, 1.0.81+) | the flag, yes | what it persists on a keyring-less box is unmeasured |
+| persistent volume over `COPILOT_HOME` | the location, yes; the file shape, no | plaintext token in the volume and every snapshot of it |
+| the `gh` credential (`gh auth token`, or its plain text hosts file) | yes, lowest precedence | `gh` tokens carry repository-wide scopes |
+
+The recommended design:
+
+- Keep the token in a per-developer secret, inject it as `COPILOT_GITHUB_TOKEN` when the agent
+  process starts, and mount a persistent volume at `COPILOT_HOME` for session state ONLY. The
+  machine then holds no login of its own.
+- Use `COPILOT_GITHUB_TOKEN`, never `GH_TOKEN` or `GITHUB_TOKEN`: those also redirect `gh` and
+  git tooling.
+- **Which token is the real decision.** A fine-grained PAT with only "Copilot Requests"
+  reaches no repository, so a leak costs credits and nothing else, at the price of a browser
+  visit to create it and at each expiry. The OAuth `gho_` token fits "log in once" and needs
+  no renewal, but its scopes are wide or unknown (one unverified report says
+  `read:user, read:org, repo, gist`). Prefer the PAT on a machine a company operates.
+- Leave `gh` unauthenticated in the image and keep the volume free of a stored login, so a bad
+  secret fails loudly instead of falling through (section 1 measured a fall-through to `gh`
+  on 1.0.80; the docs neither confirm nor refute it for current versions).
+- Pin the CLI version and disable self-update. The auth surface changed in 1.0.82, 1.0.99,
+  1.0.107, 1.0.110 and 1.0.115, and the plaintext prompt regressed once.
+- Give the agent a SEPARATE credential for git. A Copilot-only PAT cannot push, and
+  organization PAT and SSO policy clearly apply to the git one.
+- There is still no `copilot auth status` (1.0.116; an open issue requests it). The first real
+  run remains the health check (section 1), now with the documented strings
+  `Authentication failed` and `Access denied by policy settings` beside the two measured ones.
+- This does not reverse the section 1 rule for a desktop app. A token setting is wrong where
+  the user has a keychain and an interactive login. It is right on a machine with no user at
+  it, and the token is still the developer's own.
+
+Policy and cost:
+
+- No GitHub term consulted prohibits headless, always-on, per-developer use (the terms are
+  silent, which is not a grant). What binds: "Your login may only be used by one person", no
+  sharing of tokens to exceed rate limits, and the bans on excessive automated bulk activity.
+  One VM per developer holding only that developer's token fits; a shared VM or a pooled token
+  does not. That a company-operated VM counts as the developer's own use is inferred.
+- For an organization-assigned seat, the Copilot CLI client policy decides whether the CLI
+  works at all. Whether organization PAT policy reaches a user-owned Copilot-only PAT is
+  inferred not to, and unconfirmed. Enterprise Managed Users, SSO and IP allow lists are
+  unresearched.
+- **Billing changed, and it conflicts with section 10.** The docs say every plan has billed
+  token-metered AI credits since 2026-06-01 (1 credit = 0.01 USD; monthly included: Pro 1,500,
+  Pro+ 7,000, Max 20,000, Business 1,900 and Enterprise 3,900 per user, pooled), with
+  per-prompt premium requests surviving only for annual Pro and Pro+ subscribers. The 2026-08
+  recordings behind section 10 still report `premiumRequests`. Which unit a given account
+  sees is unmeasured; read whatever the `result` line carries and do not assume either.
+- Under credits every model call of an idle-looping agent is metered. An always-on agent MUST
+  have a budget, and a runaway agent on a Business or Enterprise seat drains the
+  organization's pool, not just one developer's.
+
+Supported alternatives, none of which is "bring your own Copilot" on an always-on box:
+
+- Cloud agent: no stored login, but sessions cap at 59 minutes and one repository.
+- `copilot --remote` (remote control): needs a live interactive session and does not work with
+  `-p`, so it is a front end for the VM, not a substitute for its login.
+- The Copilot SDK headless server (`copilot --headless --port`): the documented service mode,
+  with per-session user tokens. No built-in auth on the port and no idle timeout by default.
+- GitHub App installation tokens bill the organization; BYOK bills the model provider.
+
+Measure on a Linux box before relying on anything marked inferred or unmeasured: the plaintext
+token's field name and file mode, whether `storeTokenPlaintext` suppresses the prompt, what
+`--with-token` writes, whether a copied `config.json` works on a second machine, the
+invalid-token behaviour with `gh` present on the pinned version, the OAuth app's scopes, and
+concurrent access to one `COPILOT_HOME` during a rolling replacement.
+
+## 14. Method
 
 - Spike before design. A go/no-go spike of 13 runs cost about 5 premium requests and
   overturned the plan's central design. The option that rescued it (relocating the CLI's home)
