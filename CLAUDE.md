@@ -8,11 +8,12 @@ A collection of reusable Claude Code skills, published for copying (or symlinkin
 
 ## Structure and conventions
 
-- Each top-level folder is one skill and must contain a `SKILL.md` with YAML frontmatter (`name`, `description`). The `name` matches the folder name; the `description` doubles as the skill's load trigger, so it must state both what the skill covers and when to load it.
+- Each top-level folder is one skill (except `reports/`, `research_notes/` and `.planning/`, below) and must contain a `SKILL.md` with YAML frontmatter (`name`, `description`). The `name` matches the folder name; the `description` doubles as the skill's load trigger, so it must state both what the skill covers and when to load it.
 - When adding or renaming a skill, update the table in `README.md` — it lists every skill with a link to its `SKILL.md` and a one-line description.
 - `common.md` is a standalone reference document (community keywords/phrases for LLM coding assistants), not a skill — it has no frontmatter and is not listed in the skills table.
 - `working-agreement.md` is a standalone rules file distilled from `common.md`, meant to be copied to `~/.claude/` (or a project) and imported into a project's `CLAUDE.md` via `@path`. Also not a skill. Because it gets imported verbatim as instructions, keep its body free of meta-commentary — usage notes live in the leading HTML comment.
 - `.planning/` holds plan documents managed by the `plan` plugin (`/plan:create`, `/plan:critique`); it is working material, not a skill.
+- `reports/` holds sourced research reports that a skill points to for its evidence (for example `reports/Copilot CLI login persistence.md`, cited from `copilot-cli-orchestration`). It is not a skill: it has no `SKILL.md` and is not listed in the skills table. One Markdown file per report, named by its title. When a skill cites a report, commit the report in the same change so the pointer resolves. `research_notes/` holds the raw notes behind a report and is local working material, not committed.
 
 ## Writing style for skills
 
