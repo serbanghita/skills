@@ -16,8 +16,8 @@ numbers.
 
 **Scope of the evidence, which applies to every claim below.** CLI 1.0.79 (2026-08-19) and
 1.0.80 (2026-08-20), one macOS arm64 machine, every workspace under `/private/tmp`. Nothing
-about Copilot was measured on Windows or Linux, and nothing under a real application-data
-directory. "Measured" means a run showed it on those versions; "documented" means it comes from
+about Copilot was measured on Windows, nothing on Linux outside section 13 (which carries its
+own scope), and nothing under a real application-data directory. "Measured" means a run showed it on those versions; "documented" means it comes from
 the CLI's help or docs and no run isolated it. Where a claim is neither, it says so.
 
 The meta-rule is the same as for Claude Code and it was earned again here: **the CLI's behavior
@@ -519,11 +519,13 @@ directly.
 
 A different deployment from the rest of this skill: one always-on Linux VM or pod per
 developer, each running that developer's own Copilot on their own subscription, where the
-machine can be destroyed and recreated. **Evidence grade for this whole section: desk
-research on 2026-11-26** (docs.github.com, the `github/copilot-cli` changelog and issues, CLI
-1.0.100 to 1.0.116, one macOS machine). NOTHING here was run on Linux. Each claim is marked
-documented, inferred or unmeasured; the full report with sources is
-`reports/Copilot CLI login persistence.md` in this repository.
+machine can be destroyed and recreated. **Evidence for this section comes from two places.**
+Desk research on 2026-11-26 (docs.github.com, the `github/copilot-cli` changelog and issues,
+CLI 1.0.100 to 1.0.116), and one container test the same day: CLI 1.0.100 in two
+`node:22-slim` Linux arm64 containers with no keyring, fed a `gho_` token that `copilot login`
+had minted on macOS. "Measured" below means that test showed it, on that one version and that
+one account. Each other claim is marked documented, inferred or unmeasured; the full report
+with sources is `reports/Copilot CLI login persistence.md` in this repository.
 
 **The answer is yes, and the unit of identity is the token, not the machine.** Every supported
 credential is a bearer string the CLI will take from the environment; its own stores are
@@ -533,19 +535,39 @@ Where the login lives:
 
 - Default (documented): the OS credential store under service name `copilot-cli` (Keychain,
   Credential Manager, libsecret on Linux). On macOS `config.json` holds only account names
-  (`loggedInUsers`, `lastLoggedInUser`) and no token (measured, 1.0.100).
+  (`loggedInUsers`, `lastLoggedInUser`) and no token (measured, 1.0.100). Copying a macOS
+  `~/.copilot` to another machine therefore carries NO login: a Linux container given only
+  those files failed with `Authentication token found but could not be validated` and
+  `Saved sign-in could not be read from credential storage` (measured). The token has to be
+  read out of the keychain separately
+  (`security find-generic-password -s copilot-cli -w` on macOS).
 - No keyring reachable (documented): the CLI asks
   `System keychain unavailable. Store token in plaintext config file? (y/N)` and on yes writes
   the token into `config.json` under `~/.copilot` or `COPILOT_HOME`. Declining cancels the
-  sign-in. A `storeTokenPlaintext` key in `settings.json` (default `false`) allows it; whether
-  that suppresses the prompt is unmeasured.
+  sign-in. A `storeTokenPlaintext` key in `settings.json` (default `false`) allows it.
+- **With no terminal there is no prompt, and the default is to save nothing** (measured).
+  `copilot login --with-token` with the token piped on stdin printed
+  `Login succeeded, but the token was not saved. Install a system keychain or rerun login and
+  accept plaintext storage.`, exited 1 and left `config.json` untouched; the next run failed
+  with `No authentication information found`. With `"storeTokenPlaintext": true` in
+  `settings.json` the same command printed `Signed in successfully as <login>`, exited 0 and
+  wrote the token. A boot script MUST write that setting first and MUST check the exit code.
+  Whether the setting also suppresses the question in the interactive device flow is
+  unmeasured.
 - **`COPILOT_HOME` relocates the plaintext fallback and all state, but NOT a keyring entry**
   (documented). This explains the section 1 measurement. It also reverses on a pod: with no
   keyring the credential lives INSIDE the home, so a per-conversation home (section 5) starts
   logged out unless a token variable is set.
-- The token field in `config.json` is undocumented and the file is described as managed
-  application state, not a contract. The only description is a 2025 excerpt
-  (`copilot_tokens`, keyed `<host>:<login>`); the name has probably changed since.
+- The plaintext shape on 1.0.100 (measured): `config.json`, mode 600, gains an `authTokens`
+  map with two entries, keyed `<host>:<login>` and `<host>:<login>:github`, each
+  `{ "token": "gho_..." }`, beside `loggedInUsers` and `lastLoggedInUser`. The field is
+  undocumented and the file is described as managed application state, not a contract; a 2025
+  excerpt shows it as `copilot_tokens`, so it has been renamed at least once. Restore the
+  whole file, never parse the token out of it.
+- **That file is the whole login, and it is portable** (measured). A container destroyed and
+  recreated, given back only that `config.json` (no `settings.json`, no token variable,
+  different hostname), completed a run. Nothing binds the token to the machine or the OS
+  that minted it.
 - NEVER depend on a keyring on a headless box. Open issues report keyrings installed but
   unusable over SSH, no default keyring being created, and a 20 second startup stall on an
   unresponsive Secret Service. A GNOME keyring also needs an unlock per boot.
@@ -574,9 +596,9 @@ Four ways to bring the login back:
 
 | Route | Documented | Weakness |
 |---|---|---|
-| `COPILOT_GITHUB_TOKEN` from a per-developer secret | yes, recommended by GitHub for containers and headless servers | rotation needs a process restart; a stale value masks a valid stored login |
-| `copilot login --with-token` at boot (stdin, 1.0.81+) | the flag, yes | what it persists on a keyring-less box is unmeasured |
-| persistent volume over `COPILOT_HOME` | the location, yes; the file shape, no | plaintext token in the volume and every snapshot of it |
+| `COPILOT_GITHUB_TOKEN` from a per-developer secret | yes, recommended by GitHub for containers and headless servers; measured working on an empty home | rotation needs a process restart; a stale value masks a valid stored login |
+| `copilot login --with-token` at boot (stdin, 1.0.81+) | the flag, yes; measured | saves nothing and exits 1 unless `storeTokenPlaintext` is set first |
+| persistent volume over `COPILOT_HOME` | the location, yes; the file shape, no; measured as a restored `config.json` | plaintext token in the volume and every snapshot of it |
 | the `gh` credential (`gh auth token`, or its plain text hosts file) | yes, lowest precedence | `gh` tokens carry repository-wide scopes |
 
 The recommended design:
@@ -594,6 +616,12 @@ The recommended design:
 - Leave `gh` unauthenticated in the image and keep the volume free of a stored login, so a bad
   secret fails loudly instead of falling through (section 1 measured a fall-through to `gh`
   on 1.0.80; the docs neither confirm nor refute it for current versions).
+- **Install `ca-certificates` in the image** (measured). On `node:22-slim` without it every
+  run failed with `Authentication token found but could not be validated` and
+  `Failed to fetch PAT user login: network fetch failed`, with a valid token and while Node's
+  own `fetch` reached api.github.com from the same container. The CLI's native client reads
+  the system trust store. A TLS failure here reads as an auth failure; check the trust store
+  before rotating a token.
 - Pin the CLI version and disable self-update. The auth surface changed in 1.0.82, 1.0.99,
   1.0.107, 1.0.110 and 1.0.115, and the plaintext prompt regressed once.
 - Give the agent a SEPARATE credential for git. A Copilot-only PAT cannot push, and
@@ -635,11 +663,11 @@ Supported alternatives, none of which is "bring your own Copilot" on an always-o
   with per-session user tokens. No built-in auth on the port and no idle timeout by default.
 - GitHub App installation tokens bill the organization; BYOK bills the model provider.
 
-Measure on a Linux box before relying on anything marked inferred or unmeasured: the plaintext
-token's field name and file mode, whether `storeTokenPlaintext` suppresses the prompt, what
-`--with-token` writes, whether a copied `config.json` works on a second machine, the
-invalid-token behaviour with `gh` present on the pinned version, the OAuth app's scopes, and
-concurrent access to one `COPILOT_HOME` during a rolling replacement.
+Still unmeasured, so measure before relying on it: the interactive device-code login inside a
+container (the test only re-fed a token that already existed), the plaintext question with a
+terminal attached, the invalid-token behaviour with `gh` present on the pinned version, the
+OAuth app's scopes, any version other than 1.0.100, and concurrent access to one
+`COPILOT_HOME` during a rolling replacement.
 
 ## 14. Method
 
